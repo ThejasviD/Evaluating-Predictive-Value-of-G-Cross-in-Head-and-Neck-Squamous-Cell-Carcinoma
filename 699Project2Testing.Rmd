@@ -1,0 +1,298 @@
+---
+title: "699Project2Testing"
+output: html_document
+date: "2026-02-27"
+---
+
+```{r}
+models <- fit_list2$analyses
+m <- length(models)
+
+```
+
+
+```{r}
+lp_test <- vector("list", m)
+
+for (i in 1:m) {
+  test_data_i <- complete(umich_imputed, i)
+  lp_test[[i]] <- predict(models[[i]], newdata = test_data_i, type = "lp")
+}
+
+```
+
+
+
+```{r}
+
+m <- length(fit_list2$analyses)
+c_index_test <- numeric(m)
+
+for (i in 1:m) {
+
+  fit_i  <- fit_list2$analyses[[i]]
+  test_i <- complete(umich_imputed, i)
+
+  lp <- predict(fit_i, newdata = test_i, type = "lp")
+  lp <- as.numeric(lp)
+
+  # rcorr.cens expects: predictor first, then Surv object
+  c_index_test[i] <- rcorr.cens(lp, Surv(test_i$os_time, test_i$os))["C Index"]
+}
+
+c_index_test
+mean(c_index_test)
+
+```
+
+```{r}
+
+m <- length(fit_list2$analyses)
+c_index_test <- numeric(m)
+
+for (i in 1:m) {
+  fit_i  <- fit_list2$analyses[[i]]
+  test_i <- complete(umich_imputed, i)
+  
+  lp <- as.numeric(predict(fit_i, newdata = test_i, type = "lp"))
+  
+  # Try normal LP
+  c_index_test[i] <- rcorr.cens(lp, Surv(test_i$os_time, test_i$os))["C Index"]
+}
+mean(c_index_test)
+
+# Try negated LP (flip direction)
+c_index_test_neg <- numeric(m)
+for (i in 1:m) {
+  fit_i  <- fit_list2$analyses[[i]]
+  test_i <- complete(umich_imputed, i)
+  
+  lp <- as.numeric(predict(fit_i, newdata = test_i, type = "lp"))
+  
+  c_index_test_neg[i] <- rcorr.cens(-lp, Surv(test_i$os_time, test_i$os))["C Index"]
+}
+mean(c_index_test_neg)
+
+```
+
+
+
+```{r}
+brier_list <- vector("list", m)
+
+for (i in 1:m) {
+
+  fit_i  <- fit_list2$analyses[[i]]
+  test_i <- complete(umich_imputed, i)
+
+  brier_list[[i]] <- brier(
+    fit_i,
+    newdata = test_i
+  )
+}
+
+brier_df1 <- bind_rows(
+  lapply(1:m, function(i) {
+
+    data.frame(
+      time = brier_list[[i]]$time,
+      brier = brier_list[[i]]$brier,
+      imputation = i
+    )
+
+  })
+)
+
+brier_matrix <- sapply(brier_list, function(x) x$brier)
+
+#brier_matrix
+#rowMeans(brier_matrix)
+
+
+```
+
+
+```{r}
+fit <- fit_list2$analyses[[1]]
+data1 <- complete(umich_imputed, 1)
+
+brier_obj <- brier(
+  fit,
+  times = c(12, 24, 36, 48, (365*5)),   # 3-year, 5-year example
+  newdata = data1
+)
+
+brier_obj
+```
+
+
+
+
+
+##Testing reduced model with no biomarker
+
+```{r}
+models3 <- fit_list3$analyses
+m <- length(models3)
+
+```
+
+
+```{r}
+lp_test <- vector("list", m)
+
+for (i in 1:m) {
+  test_data_i <- complete(umich_imputed, i)
+  lp_test[[i]] <- predict(models[[i]], newdata = test_data_i, type = "lp")
+}
+
+```
+
+
+
+```{r}
+
+m <- length(fit_list3$analyses)
+c_index_test <- numeric(m)
+
+for (i in 1:m) {
+
+  fit_i  <- fit_list3$analyses[[i]]
+  test_i <- complete(umich_imputed, i)
+
+  lp <- predict(fit_i, newdata = test_i, type = "lp")
+  lp <- as.numeric(lp)
+
+  # rcorr.cens expects: predictor first, then Surv object
+  c_index_test[i] <- rcorr.cens(lp, Surv(test_i$os_time, test_i$os))["C Index"]
+}
+
+c_index_test
+mean(c_index_test)
+```
+
+
+```{r}
+c_index_test_neg <- numeric(m)
+for (i in 1:m) {
+  fit_i  <- fit_list3$analyses[[i]]
+  test_i <- complete(umich_imputed, i)
+  
+  lp <- as.numeric(predict(fit_i, newdata = test_i, type = "lp"))
+  
+  c_index_test_neg[i] <- rcorr.cens(-lp, Surv(test_i$os_time, test_i$os))["C Index"]
+}
+mean(c_index_test_neg)
+```
+
+```{r}
+brier_list <- vector("list", m)
+
+for (i in 1:m) {
+
+  fit_i  <- fit_list3$analyses[[i]]
+  test_i <- complete(umich_imputed, i)
+
+  brier_list[[i]] <- brier(
+    fit_i,
+    newdata = test_i
+  )
+}
+
+brier_df2 <- bind_rows(
+  lapply(1:m, function(i) {
+
+    data.frame(
+      time = brier_list[[i]]$time,
+      brier = brier_list[[i]]$brier,
+      imputation = i
+    )
+
+  })
+)
+
+
+
+brier_matrix <- sapply(brier_list, function(x) x$brier)
+
+#brier_matrix
+#rowMeans(brier_matrix)
+
+```
+
+
+```{r}
+brier_df1$model <- "Model with G-Cross"
+brier_df2$model <- "Model without G-Cross"
+brier_combined <- bind_rows(brier_df1, brier_df2)
+
+ggplot(brier_combined,
+       aes(time/365, brier,
+           group = interaction(imputation, model),
+           color = model)) +
+  geom_line(alpha = 0.35) +
+  geom_vline(xintercept = 5, linetype = "dashed") +
+  theme_minimal() +
+  scale_x_continuous(
+    limits = c(0, 7.5),
+    breaks = seq(0, 7.5, by = 1)
+  ) +
+  scale_y_continuous(
+    limits = c(0, 0.3),
+    breaks = seq(0, 0.3, by = 0.02)
+  ) +
+  labs(
+    x = "Time (Years)",
+    y = "Brier Score",
+    title = "Prediction Error Curve",
+    color = "Model"
+  )
+```
+
+```{r}
+fit <- fit_list3$analyses[[1]]
+data1 <- complete(umich_imputed, 1)
+
+brier_obj <- brier(
+  fit,
+  times = c(12, 24, 36, 48, (365*5)),   # 3-year, 5-year example
+  newdata = data1
+)
+
+brier_obj
+```
+
+
+
+```{r}
+data1 <- complete(tcga_clean_imputed, 1)
+
+newdata <- data.frame(
+  biomarker = c(0,1,0,1),
+  age = mean(data1$age, na.rm = TRUE),
+  hpv = 0,
+  stage = c("Stage I", "Stage I", "Stage IV", "Stage IV"),
+  site = "oral cavity"
+)
+
+fit1 <- fit_list2$analyses[[1]]
+
+sf <- survfit(fit1, newdata = newdata, data=newdata)
+
+ggsurvplot(
+  sf,
+    conf.int = FALSE,
+  legend.labs = c(
+    "Stage 1-3, G-cross Low",
+    "Stage 1-3, G-cross High",
+    "Stage 4, G-cross Low",
+    "Stage 4, G-cross High"
+  ),
+  palette = c("#2C7BB6","#D7191C","darkblue","darkred"),
+  linetype = c("solid","solid","solid","solid"),
+  xlab = "Time (Months)",
+  ylab = "Survival Probability",
+  ggtheme = theme_minimal()
+)
+```
+

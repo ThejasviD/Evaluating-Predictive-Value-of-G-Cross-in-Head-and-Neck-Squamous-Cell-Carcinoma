@@ -1,0 +1,503 @@
+---
+title: "699Project2Models"
+output: html_document
+date: "2026-02-24"
+---
+
+```{r}
+model1 <-coxph(Surv(os_time, os) ~ biomarker + age + gender + stage + hpv + cig_history + alcohol_history + stage + site + lvi + ene, data = tcga_clean)
+
+summary(model1)
+```
+
+##FULL MODEL
+
+```{r}
+imputed_model <- with(tcga_clean_imputed,
+coxph(Surv(os_time, os) ~ biomarker + age + gender + stage + hpv + cig_history + alcohol_history + stage + site + lvi + ene)) %>%
+pool() %>%
+tidy(conf.int = T)
+
+imputed_model
+```
+
+
+```{r}
+fit_list <- with(tcga_clean_imputed,
+coxph(Surv(os_time, os) ~ biomarker + age + gender + stage + hpv + cig_history + alcohol_history + stage + site + lvi + ene, x = TRUE,
+    y = TRUE, model=TRUE))
+
+pooled_model <- pool(fit_list)
+summary(pooled_model)
+
+```
+
+##C-Index with FUll Model
+
+
+```{r}
+c_index_list <- lapply(fit_list$analyses, function(fit) {
+  summary(fit)$concordance[1]
+})
+
+c_index_list
+
+```
+
+##Brier Score with Full Model
+
+```{r}
+fit <- fit_list$analyses[[1]]
+data1 <- complete(tcga_clean_imputed, 1)
+
+brier_obj <- brier(
+  fit,
+  times = c((365*5)),   # 3-year, 5-year example
+  newdata = data1
+)
+
+brier_obj
+
+
+```
+
+```{r}
+brier_vals <- sapply(1:tcga_clean_imputed$m, function(i) {
+  
+  fit_i  <- fit_list$analyses[[i]]
+  data_i <- complete(tcga_clean_imputed, i)
+  
+  brier(fit_i,
+        times = 60,
+        newdata = data_i)$brier
+})
+
+mean(brier_vals)
+sd(brier_vals)
+
+```
+
+##Reduced Model
+```{r}
+fit_list2 <- with(tcga_clean_imputed,
+coxph(Surv(os_time, os) ~ biomarker + age + site + stage + ene, x = TRUE,
+    y = TRUE, model=TRUE))
+
+pooled_model <- pool(fit_list2)
+summary(pooled_model, exponentiate = TRUE, conf.int = TRUE)
+```
+
+```{r}
+
+data1 <- complete(tcga_clean_imputed, 1)
+
+newdata <- data.frame(
+  biomarker = c(0.49, 0.09, 0.49, 0.09),
+  age = mean(data1$age, na.rm = TRUE),
+  hpv = 0,
+  ene= 0,
+  stage = c("Stage I", "Stage I", "Stage IV", "Stage IV"),
+  site = "oral cavity"
+)
+
+fit1 <- fit_list2$analyses[[1]]
+
+sf <- survfit(fit1, newdata = newdata, data=newdata)
+
+ggsurvplot(
+  sf,
+    conf.int = FALSE,
+  legend.labs = c(
+    "Stage 1, G-cross High",
+    "Stage 1, G-cross Low",
+    "Stage 4, G-cross High",
+    "Stage 4, G-cross Low"
+  ),
+  legend = "right",
+  palette = "Paired",
+  linetype = c("solid","solid","solid","solid"),
+  xscale = 365.25,
+  xlim = c(0, 3652),
+  break.time.by = 365.25,
+  xlab = "Time (Years)",
+  ylab = "Survival Probability",
+  ggtheme = theme_minimal()
+)
+```
+
+
+
+```{r}
+c_index_list <- lapply(fit_list2$analyses, function(fit) {
+  summary(fit)$concordance[1]
+})
+
+c_index_list
+
+mean(0.6833405, 0.6836185,0.6752352, 0.6836826 , 0.6854577, 0.6875321, 0.6681779, 0.6918092, 0.6753636, 0.692237)
+```
+
+```{r}
+fit <- fit_list2$analyses[[1]]
+data1 <- complete(tcga_clean_imputed, 1)
+
+brier_obj <- brier(
+  fit,
+  times = c(12, 24, 36, 48, (365*5)),   # 3-year, 5-year example
+  newdata = data1
+)
+
+brier_obj
+
+brier_list <- vector("list", m)
+
+for (i in 1:m) {
+
+  fit_i  <- fit_list2$analyses[[i]]
+  test_i <- complete(tcga_clean_imputed, i)
+
+  brier_list[[i]] <- brier(
+    fit_i,
+    newdata = test_i
+  )
+}
+
+brier_matrix <- sapply(brier_list, function(x) x$brier)
+
+#brier_matrix
+#rowMeans(brier_matrix)
+
+```
+
+
+```{r}
+brier_df1_tcga <- bind_rows(
+  lapply(1:m, function(i) {
+
+    data.frame(
+      time = brier_list[[i]]$time,
+      brier = brier_list[[i]]$brier,
+      imputation = i
+    )
+
+  })
+)
+
+
+
+ggplot(brier_df_tcga, aes(time/12, brier, group = imputation)) +
+  geom_line(alpha = 0.35) +
+  theme_minimal() +
+   scale_x_continuous(
+    limits = c(0, 10),
+    breaks = seq(0, 10, by = 1)
+  ) +
+  labs(
+    x = "Time (Years)",
+    y = "Brier Score",
+    title = "Prediction Error Curve"
+  )
+```
+
+
+
+##Model without biomarker##
+```{r}
+fit_list3 <- with(tcga_clean_imputed,
+coxph(Surv(os_time, os) ~ age + site + stage + ene, x = TRUE,
+    y = TRUE, model=TRUE))
+
+pooled_model3 <- pool(fit_list3)
+summary(pooled_model3)
+```
+
+
+```{r}
+c_index_list3 <- lapply(fit_list3$analyses, function(fit) {
+  summary(fit)$concordance[1]
+})
+
+c_index_list3
+mean(0.6692258, 0.6680068, 0.6625962, 0.6681138, 0.6691189 , 0.6734175, 0.6515612, 0.6776518 , 0.6611848, 0.6799187)
+```
+
+```{r}
+fit <- fit_list3$analyses[[1]]
+data1 <- complete(tcga_clean_imputed, 1)
+
+brier_obj <- brier(
+  fit,
+  times = c(12, 24, 36, 48, (365*5)),   # 3-year, 5-year example
+  newdata = data1
+)
+
+brier_obj
+```
+
+
+```{r}
+brier_list <- vector("list", m)
+
+for (i in 1:m) {
+
+  fit_i  <- fit_list3$analyses[[i]]
+  test_i <- complete(tcga_clean_imputed, i)
+
+  brier_list[[i]] <- brier(
+    fit_i,
+    newdata = test_i
+  )
+}
+
+brier_matrix <- sapply(brier_list, function(x) x$brier)
+
+#brier_matrix
+rowMeans(brier_matrix)
+```
+
+```{r}
+brier_df2_tcga <- bind_rows(
+  lapply(1:m, function(i) {
+
+    data.frame(
+      time = brier_list[[i]]$time,
+      brier = brier_list[[i]]$brier,
+      imputation = i
+    )
+
+  })
+)
+
+
+
+ggplot(brier_df_tcga, aes(time/12, brier, group = imputation)) +
+  geom_line(alpha = 0.35) +
+  theme_minimal() +
+   scale_x_continuous(
+    limits = c(0, 10),
+    breaks = seq(0, 10, by = 1)
+  ) +
+  labs(
+    x = "Time (Years)",
+    y = "Brier Score",
+    title = "Prediction Error Curve"
+  )
+```
+
+
+```{r}
+brier_df1_tcga$model <- "Model with G-Cross"
+brier_df2_tcga$model <- "Model without G-Cross"
+brier_combined_tcga <- bind_rows(brier_df1_tcga, brier_df2_tcga)
+```
+
+
+```{r}
+ggplot(brier_combined_tcga,
+       aes(time/365, brier,
+           group = interaction(imputation, model),
+           color = model)) +
+  geom_line(alpha = 0.35) +
+  geom_vline(xintercept = 5, linetype = "dashed") +
+  theme_minimal() +
+  
+  labs(
+    x = "Time (Years)",
+    y = "Brier Score",
+    title = "Prediction Error Curve",
+    color = "Model"
+  )
+```
+
+
+
+
+
+##Below not used##
+
+
+##Using LASSO
+
+```{r}
+m <- umich_imputed$m
+
+predictors <- c("biomarker", "age", "gender", "stage",
+                "hpv", "cig_history", "alcohol_history",
+                "site", "lvi", "ene")
+
+selected_vars <- vector("list", umich_imputed$m)
+
+for (i in 1:umich_imputed$m) {
+  data_i <- complete(umich_imputed, i)
+  
+  stopifnot(sum(is.na(data_i[, predictors])) == 0)  # check no missing
+  
+  x <- model.matrix(
+    ~ biomarker + age + gender + stage + hpv +
+      cig_history + alcohol_history + site + lvi + ene,
+    data = data_i
+  )[,-1]
+  
+  y <- Surv(data_i$os_time, data_i$os)
+  
+  cv_fit <- cv.glmnet(x, y, family = "cox", alpha = 1)
+  coef_fit <- coef(cv_fit, s = "lambda.min")
+  
+  selected_vars[[i]] <- rownames(coef_fit)[coef_fit[,1] != 0]
+}
+
+
+```
+
+
+
+```{r}
+all_selected <- unlist(selected_vars)
+
+selection_table <- table(all_selected)
+
+selection_table
+
+```
+
+
+
+```{r}
+selection_prop <- selection_table / m
+selection_prop
+
+```
+
+
+
+```{r}
+final_vars <- names(selection_prop[selection_prop >= 0.7])
+
+final_vars
+
+```
+
+
+```{r}
+# Extract coefficients for each imputation and store in a matrix
+coef_mat <- sapply(1:m, function(i) {
+  data_i <- complete(tcga_clean_imputed, i)
+  x <- model.matrix(
+    ~ biomarker + age + gender + stage + hpv +
+      cig_history + alcohol_history + site + lvi + ene,
+    data = data_i
+  )[,-1]
+  y <- Surv(data_i$os_time, data_i$os)
+  cv_fit <- cv.glmnet(x, y, family = "cox", alpha = 1)
+  coef_fit <- coef(cv_fit, s = "lambda.min")
+  
+  # Return coefficients for all final_vars (0 if not present)
+  sapply(final_vars, function(v) ifelse(v %in% rownames(coef_fit), coef_fit[v,1], 0))
+})
+
+# Average coefficients across imputations
+pooled_coef <- rowMeans(coef_mat)
+pooled_coef
+
+```
+
+##Applying to testing
+
+
+
+```{r}
+m1 <- umich_imputed$m  # number of imputations
+
+# Extract each completed dataset
+test_datasets <- lapply(1:m1, function(i) complete(umich_imputed, i))
+
+linear_preds <- lapply(test_datasets, function(data_i) {
+  x_test <- model.matrix(
+    ~ biomarker + age + gender + stage + hpv +
+      cig_history + alcohol_history + site + lvi + ene,
+    data = data_i
+  )[,-1]
+  
+  # Keep only final selected variables
+  x_test <- x_test[, final_vars, drop=FALSE]
+  
+  # Compute linear predictor
+  as.matrix(x_test) %*% pooled_coef
+})
+```
+
+
+
+##Measures
+
+
+##C-Index
+```{r}
+c_index <- sapply(1:m1, function(i) {
+
+  df_tmp <- data.frame(
+    time  = test_datasets[[i]]$os_time,
+    event = test_datasets[[i]]$os,
+    score = -linear_preds[[i]]
+  )
+
+  concordance(Surv(time, event) ~ score, data = df_tmp)$concordance
+})
+
+mean(c_index)
+sd(c_index)
+
+c_index
+
+```
+
+
+
+##Brier Score
+
+```{r}
+brier_list <- lapply(1:m1, function(i) {
+
+  train_fit <- fit_list$analyses[[i]]
+  test_data <- test_datasets[[i]]
+
+  pec(
+    object = train_fit,
+    formula = Surv(os_time, os) ~ 1,
+    data = test_data,
+    times = c(36, 60),  # 3yr and 5yr
+    exact = FALSE
+  )
+})
+
+```
+
+
+```{r}
+ibs <- sapply(brier_list, crps)
+mean(ibs)
+sd(ibs)
+
+```
+
+
+```{r}
+brier_list <- lapply(1:m1, function(i) {
+
+  train_fit <- fit_list$analyses[[i]]
+  test_data  <- complete(umich_imputed, i)  # completed test set
+
+  pec_fit <- pec(
+    object = train_fit,
+    formula = Surv(os_time, os) ~ biomarker + age + gender + stage +
+              hpv + cig_history + alcohol_history + site + lvi + ene,
+    data = test_data,
+    times = seq(0, 60, by = 6),
+    exact = FALSE
+  )
+
+  crps(pec_fit)  # IBS
+})
+
+```
+

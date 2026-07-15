@@ -1,0 +1,136 @@
+---
+title: "699Project2Imputation"
+output: html_document
+date: "2026-02-26"
+---
+
+#MICE for TCGA
+
+```{r}
+colSums(is.na(tcga_clean))
+colMeans(is.na(tcga_clean)) #stage, alcohol_history, lvi, ene
+```
+
+```{r}
+init = mice(tcga_clean, m = 1, max = 0, print = F);
+method = init$meth;
+method["stage"] <- "polr"     
+method["alcohol_history"] <- "logreg"
+method["lvi"] <- "logreg"
+method["ene"] <- "logreg"
+method;
+```
+
+```{r}
+n_cores = 5; # should be less than then value of parallel::detectCores()
+# Total number of imputed datasets:
+n_mi_chain = 10;#
+# Number of times to iterate through the chained equations
+# for each imputation
+n_iter = 20;#
+```
+
+
+```{r}
+predictorMatrix = init$pred;
+
+# Allow alcohol_history to be predicted from all other variables
+predictorMatrix["alcohol_history", ] = 1
+
+predictorMatrix[,"alcohol_history" ] = 1
+
+# But a variable can't predict itself
+predictorMatrix["alcohol_history", "alcohol_history"] <- 0
+
+predictorMatrix
+```
+
+
+```{r}
+set.seed(1234)
+
+tcga_clean_imputed <-
+futuremice(
+  tcga_clean,
+  m = n_mi_chain,
+  n.core = n_cores,
+  predictorMatrix = predictorMatrix,
+  method = method,
+  maxit = n_iter
+)
+
+```
+
+
+```{r}
+data_i <- complete(tcga_clean_imputed, 1)
+colSums(is.na(data_i[, predictors]))
+```
+
+
+
+##Imputing UMich data
+
+
+```{r}
+colSums(is.na(umich))
+colMeans(is.na(umich)) #stage, hpv, cig, alcohol, os_time(1), site, lvi, eve
+```
+
+
+```{r}
+init1 = mice(umich, m = 1, max = 0, print = F);
+method1 = init1$meth;
+method["stage"] <- "polr"  
+method["hpv"] <- "logreg"
+method["cig_history"] <- "logreg"
+method["alcohol_history"] <- "logreg"
+method["os_time"] <- "pmm"
+method["site"] <- "polyreg"
+method["lvi"] <- "logreg"
+method["ene"] <- "logreg"
+method;
+```
+
+```{r}
+predictorMatrix1 = init1$pred;
+
+# Allow alcohol_history to be predicted from all other variables
+predictorMatrix1["alcohol_history", ] = 1
+predictorMatrix1["cig_history", ] = 1
+predictorMatrix1["stage", ] = 1
+predictorMatrix1["site", ] = 1
+
+predictorMatrix1[,"alcohol_history" ] = 1
+predictorMatrix1[,"cig_history" ] = 1
+predictorMatrix1[,"stage" ] = 1
+predictorMatrix1[,"site" ] = 1
+
+# But a variable can't predict itself
+predictorMatrix1["alcohol_history", "alcohol_history"] <- 0
+predictorMatrix1["cig_history", "cig_history"] <- 0
+predictorMatrix1["stage", "stage"] <- 0
+predictorMatrix1["site", "site"] <- 0
+
+predictorMatrix1
+```
+
+```{r}
+set.seed(1234)
+
+umich_imputed <-
+futuremice(
+  umich,
+  m = n_mi_chain,
+  n.core = n_cores,
+  predictorMatrix = predictorMatrix1,
+  method = method1,
+  maxit = n_iter
+)
+```
+
+
+```{r}
+data_i <- complete(umich_imputed, 1)
+colSums(is.na(data_i[, predictors]))
+```

@@ -1,0 +1,290 @@
+---
+title: "699Project2"
+output: html_document
+date: "2026-02-16"
+---
+
+```{r}
+tcga <- read.csv("~/BST699/tcga_biostat699.csv")
+umich <- read.csv("~/BST699/umich_updated-1.csv")
+library(dplyr)
+library(tableone)
+library(survival)
+library(ggplot2)
+library(survminer)
+library(mice)
+library(furrr)
+library(glmnet)
+```
+
+```{r}
+tcga   <- tcga   %>% mutate(id = as.character(id))
+umich <- umich %>% mutate(id = as.character(id))
+
+tcga_clean <- tcga[!duplicated(tcga$id), ]
+```
+
+
+```{r}
+umich$hpv <- factor(
+  umich$hpv,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+umich$lvi <- factor(
+  umich$lvi,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+umich$ene <- factor(
+  umich$ene,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+umich$alcohol_history <- factor(
+  umich$alcohol_history,
+  levels = c("No", "Yes"),
+  labels = c(0, 1)
+)
+
+umich$cig_history <- factor(
+  umich$cig_history,
+  levels = c("No", "Yes"),
+  labels = c(0, 1)
+)
+
+umich$stage <- ordered(umich$stage,
+                      levels = c("Stage I", "Stage II", "Stage III", "Stage IV"))
+
+contrasts(umich$stage) <- contr.treatment(4)
+
+```
+
+
+```{r}
+tcga_clean$hpv <- factor(
+  tcga_clean$hpv,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+tcga_clean$lvi <- factor(
+  tcga_clean$lvi,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+tcga_clean$ene <- factor(
+  tcga_clean$ene,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+tcga_clean$alcohol_history <- factor(
+  tcga_clean$alcohol_history,
+  levels = c("No", "Yes"),
+  labels = c(0, 1)
+)
+
+tcga_clean$cig_history <- factor(
+  tcga_clean$cig_history,
+  levels = c("No", "Yes"),
+  labels = c(0, 1)
+)
+
+tcga_clean$stage <- ordered(tcga_clean$stage,
+                      levels = c("Stage I", "Stage II", "Stage III", "Stage IV"))
+
+contrasts(tcga_clean$stage) <- contr.treatment(4)
+```
+
+
+
+
+```{r}
+tcga_clean$site[tcga_clean$site == "other"] <- "other"
+umich$site[umich$site %in% c("other", "neck")] <- "other"
+
+levels_combined <- c("larynx","oral cavity","other","pharynx")
+
+tcga_clean$site <- factor(tcga_clean$site, levels = levels_combined)
+umich$site <- factor(umich$site, levels = levels_combined)
+
+```
+
+
+```{r}
+data <- bind_rows(tcga_clean, umich,
+  .id = "source")
+```
+
+
+```{r}
+options(contrasts = c("contr.treatment", "contr.treatment"))
+```
+
+
+##Table 1
+
+```{r}
+
+myVars <- c("age", "gender", "stage", "hpv", "cig_history", "alcohol_history", "site", "lvi", "ene", "biomarker")
+
+catVars <- c("gender", "stage", "hpv", "cig_history", "alcohol_history", "site", "lvi", "ene")
+```
+
+```{r}
+table_one <- CreateTableOne(
+  vars = myVars,
+  strata = "source",
+  data = data,
+  factorVars = catVars
+)
+
+print(table_one, showAllLevels = TRUE, noSpaces = TRUE, printToggle = TRUE, test = FALSE, smd = FALSE)
+```
+
+```{r}
+cutoff <- quantile(data$biomarker, 2/3, na.rm = TRUE)
+
+ggplot(tcga_clean, aes(x = biomarker)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "black") +
+  geom_vline(xintercept = cutoff, linetype = "dashed", linewidth = 1) +
+  theme_minimal() +
+  labs(
+    x = "G-Cross",
+    y = "Count",
+    title = "Distribution of G-Cross in TCGA Data"
+  )
+```
+
+```{r}
+ggplot(umich, aes(x = biomarker)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "black") +
+  geom_vline(xintercept = cutoff, linetype = "dashed", linewidth = 1) +
+  theme_minimal() +
+  labs(
+    x = "G-Cross",
+    y = "Count",
+    title = "Distribution of G-Cross in UMich Data"
+  )
+```
+
+
+
+```{r}
+fit1 <- survfit(Surv(os_time, os)~1, data=data)
+
+#plot(fit1, mark.time=TRUE)
+
+ggsurvplot(fit1, data=data, risk.table=TRUE, ggtheme=theme_bw(base_size=16), legend="none")
+```
+
+```{r}
+fit2 <- survfit(Surv((os_time/365.25), os)~source, data=data)
+
+names(fit2$strata) <- c("TCGA", "UMich")
+
+ggsurvplot(fit2,
+           data = data,
+           risk.table = TRUE,
+           conf.int = TRUE,
+           ggtheme = theme_bw(base_size = 16),
+           legend = "right",
+           tables.height = 0.3,
+           legend.labs = c("TCGA", "UMich"),
+           xlim= c(0, 10),
+           xlab = "Time (Years)")
+
+```
+
+
+```{r}
+cutoff <- quantile(data$biomarker, probs = 2/3, na.rm = TRUE)
+
+tcga_clean$gcross_group <- ifelse(tcga_clean$biomarker >= cutoff, "High", "Low")
+tcga_clean$gcross_group <- factor(tcga_clean$gcross_group, levels = c("Low", "High"))
+
+
+fit <- survfit(Surv((os_time/365), os) ~ gcross_group, data = tcga_clean)
+```
+
+
+```{r}
+ggsurvplot(
+  fit,
+  data = tcga_clean,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  ggtheme = theme_bw(base_size = 16),
+  legend = "right",
+  tables.height = 0.3,
+  legend.title = "G-Cross",
+  legend.labs = c("Low", "High"),
+  xlab = "Time (Years)",
+  ylab = "Survival Probability",
+  xlim = c(0, 10),
+  break.time.by = 2,
+  title = "TCGA Cohort"
+)
+```
+
+
+
+```{r}
+umich$gcross_group <- ifelse(umich$biomarker >= cutoff, "High", "Low")
+umich$gcross_group <- factor(umich$gcross_group, levels = c("Low", "High"))
+
+
+fit <- survfit(Surv((os_time/365), os) ~ gcross_group, data = umich)
+```
+
+
+```{r}
+ggsurvplot(
+  fit,
+  data = umich,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  ggtheme = theme_bw(base_size = 16),
+  legend = "right",
+  tables.height = 0.3,
+  legend.title = "G-Cross",
+  legend.labs = c("Low", "High"),
+  xlab = "Time (Years)",
+  ylab = "Survival Probability",
+  xlim = c(0, 10),
+   break.time.by = 2,
+  title = "UMich Cohort"
+)
+```
+
+```{r}
+data$gcross_group <- ifelse(data$biomarker >= cutoff, "High", "Low")
+data$gcross_group <- factor(data$gcross_group, levels = c("Low", "High"))
+
+fit_combined <- survfit(Surv((os_time/365), os) ~ gcross_group + source,
+                        data = data)
+```
+
+
+```{r}
+ggsurvplot(
+  fit_combined,
+  data = data,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  ggtheme = theme_bw(base_size = 16),
+  legend = "right",
+  legend.title = "G-Cross",
+  legend.labs = c("Low", "High"),
+  xlab = "Time (Years)",
+  ylab = "Survival Probability",
+  xlim = c(0, 10),
+  facet.by = "source"
+)
+```
+
